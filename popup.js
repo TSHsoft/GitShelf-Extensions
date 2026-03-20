@@ -24,6 +24,7 @@ const ICONS = {
 
 const SPINNER_HTML = `<div class="spinner" style="width: 12px; height: 12px; margin-right: 8px;"></div>`;
 
+
 async function init() {
   // 1. Initial Theme Load
   const { theme } = await chrome.storage.local.get(['theme']);
@@ -35,11 +36,15 @@ async function init() {
   }
   elements.btnSignOut.innerHTML = ICONS.logout;
 
-  // 2. Check Auth Storage
+  // 2. Proactive Sync with App's Main Storage (Pull Model)
+  // This ensures that if the app is logged out, the extension knows immediately.
+  await syncAuthWithApp();
+
+  // 3. Check Auth Storage
   let storage = await chrome.storage.local.get(['githubToken', 'userProfile']);
   
   if (!storage.githubToken) {
-    // Try to sync from open app tabs
+    // Try to sync from open app tabs (Push-back fallback)
     await trySyncAuth();
     storage = await chrome.storage.local.get(['githubToken', 'userProfile']);
   }
@@ -237,6 +242,19 @@ async function trySyncAuth() {
   } catch (err) {
     console.error('[Popup] Auth sync failed:', err);
   }
+}
+
+async function syncAuthWithApp() {
+    console.log('[Popup] Proactive auth sync with Bridge (Pull)');
+    return new Promise(async (resolve) => {
+        chrome.runtime.sendMessage({ 
+            type: 'SYNC_AUTH_FROM_APP', 
+            payload: { appUrl: CONFIG.APP_URL } 
+        }, (response) => {
+            console.log('[Popup] Bridge auth sync complete', response?.auth ? 'Authenticated' : 'Logged Out');
+            resolve();
+        });
+    });
 }
 
 init();

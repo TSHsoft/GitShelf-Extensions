@@ -72,7 +72,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // Handle messages from the injected script in GitShelf App
   if (request.type === 'APP_AUTH_SYNC') {
     console.log('[Background] Received APP_AUTH_SYNC', request.payload);
     chrome.storage.local.set({
@@ -80,6 +79,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       userProfile: request.payload.userProfile
     }).then(() => {
         console.log('[Background] Auth storage updated');
+    });
+  }
+
+  if (request.type === 'APP_SIGN_OUT') {
+    console.log('[Background] Received APP_SIGN_OUT request from App');
+    chrome.storage.local.remove(['githubToken', 'userProfile', 'savedRepoIds']).then(() => {
+        console.log('[Background] Auth storage cleared (Log Out)');
     });
   }
 
@@ -91,15 +97,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'APP_SAVE_SUCCESS') {
-    if (saveResolver) {
+    if (saveResolver && saveResolver.resolve) {
         console.log('[Background] Received APP_SAVE_SUCCESS, resolving promise');
-        saveResolver();
+        saveResolver.resolve();
+        saveResolver = null;
+    }
+  }
+
+  if (request.type === 'APP_SAVE_FAILURE') {
+    if (saveResolver && saveResolver.reject) {
+        console.error('[Background] Received APP_SAVE_FAILURE:', request.error);
+        saveResolver.reject(request.error);
         saveResolver = null;
     }
   }
 
   if (request.type === 'APP_IDS_SYNC') {
     chrome.storage.local.set({ savedRepoIds: request.ids });
+  }
+
+  if (request.type === 'EXT_AUTH_RESULT') {
+    if (authResolver) {
+        // If auth exists in app, sync it locally just in case
+        if (request.auth) {
+            chrome.storage.local.set({ 
+              githubToken: request.auth.githubToken,
+              userProfile: request.auth.userProfile
+            });
+        } else {
+            // Force clear if App reported NULL
+            chrome.storage.local.remove(['githubToken', 'userProfile', 'savedRepoIds']);
+        }
+        authResolver(request.auth);
+        authResolver = null;
+    }
   }
 
   if (request.type === 'SYNC_IDS') {
@@ -111,9 +142,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
     });
   }
+
+  if (request.type === 'SYNC_AUTH_FROM_APP') {
+    handleAuthSync(CONFIG.APP_URL)
+        .then((auth) => sendResponse({ auth, appUrl: CONFIG.APP_URL }))
+        .catch(() => sendResponse({ auth: null, appUrl: CONFIG.APP_URL }));
+    return true; // Keep channel open for async response
+  }
 });
 
 let saveResolver = null;
+let authResolver = null;
+
+async function handleAuthSync(appUrl) {
+    return new Promise(async (resolve) => {
+        authResolver = (auth) => resolve(auth);
+        
+        // Safety timeout
+        setTimeout(() => {
+            if (authResolver) {
+                authResolver(null);
+                authResolver = null;
+            }
+        }, 5000);
+
+        await ensureOffscreenDocument();
+        chrome.runtime.sendMessage({
+            type: 'OFFSCREEN_GET_AUTH',
+            target: 'offscreen',
+            payload: { appUrl }
+        });
+    });
+}
 
 async function handleSave(path) {
   console.log(`[Background] handleSave started for path: ${path}`);
@@ -278,50 +338,32 @@ async function fetchRepoFromGithub(path, token) {
 }
 
 async function saveToAppDatabase(path) {
-  // 1. Prioritize live UI update if an active app tab is available
-  const tabs = await chrome.tabs.query({ 
-    url: CONFIG.APP_ORIGIN_PATTERNS 
-  });
-  
-  if (tabs.length > 0) {
-    const activeTab = tabs.find(t => !t.discarded && t.status === 'complete') || tabs[0];
-    try {
-        console.log('[Background] Attempting live sync via tab:', activeTab.id);
-        const results = await chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            func: injectedSaveAction,
-            args: [path],
-            world: 'MAIN'
-        });
-        
-        if (results[0]?.result?.success) {
-            console.log('[Background] Live sync message sent');
-            return;
-        }
-    } catch (e) {
-        console.warn('[Background] Live sync message failed, falling back to offscreen bridge', e);
-    }
-  }
-
-  // 2. Fallback: Use the offscreen bridge (Universal & Guaranteed)
+  // 1. Force all saves to use the offscreen bridge (Unified Truth source)
+  // This eliminates race conditions/stale reads when the App home page is also open.
   return new Promise(async (resolve, reject) => {
     const timeout = setTimeout(() => {
         saveResolver = null;
         reject(new Error('Save timeout (10s): Bridge did not respond'));
     }, 10000);
 
-    saveResolver = () => {
-        clearTimeout(timeout);
-        resolve();
+    saveResolver = {
+        resolve: () => {
+            clearTimeout(timeout);
+            resolve();
+        },
+        reject: (err) => {
+            clearTimeout(timeout);
+            reject(new Error(err || 'Save failed'));
+        }
     };
 
-    console.log('[Background] Using offscreen bridge for path-based save');
+    console.log('[Background] Using UNIFIED bridge (Localhood)');
     await ensureOffscreenDocument();
-    
+    const { githubToken } = await chrome.storage.local.get(['githubToken']);
     chrome.runtime.sendMessage({
         type: 'OFFSCREEN_SAVE_PATH', // New type
         target: 'offscreen',
-        payload: { path, appUrl: CONFIG.APP_URL }
+        payload: { path, appUrl: CONFIG.APP_URL, token: githubToken }
     });
   });
 }
