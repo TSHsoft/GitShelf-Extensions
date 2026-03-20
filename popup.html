@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitShelf Extension</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-left">
+        <img src="icons/icon48.png" alt="Logo" class="logo">
+        <h1 class="title">GitShelf</h1>
+      </div>
+      <div class="header-actions">
+        <button id="btn-theme" class="btn-icon" title="Toggle Light/Dark mode"></button>
+        <button id="btn-sign-out" class="btn-icon hidden" title="Sign Out"></button>
+      </div>
+    </div>
+
+    <!-- State: Loading -->
+    <div id="state-loading" class="state active">
+      <div style="display: flex; justify-content: center; padding: 20px;">
+        <div class="spinner"></div>
+      </div>
+    </div>
+
+    <!-- State: Logged Out -->
+    <div id="state-logged-out" class="state">
+      <p class="tip">Sign in to GitShelf to start saving repositories.</p>
+      <button id="btn-login" class="btn btn-primary">Sign In</button>
+    </div>
+
+    <!-- State: Logged In -->
+      <div id="state-logged-in" class="state">
+        <div class="user-info">
+          <div class="user-details">
+            <img id="user-avatar" src="" alt="" class="avatar">
+            <span id="user-name" class="username">Loading...</span>
+          </div>
+          <button id="btn-open-app" class="btn btn-outline">Open My Shelf</button>
+        </div>
+
+        <!-- Detail Card (if on GitHub) -->
+        <div id="context-card" class="context-card hidden">
+          <div class="context-header">
+             <span id="context-name">owner/repo</span>
+          </div>
+          <button id="btn-save" class="btn btn-primary">Save to Shelf</button>
+        </div>
+
+      <!-- Tip (if NOT on GitHub) -->
+      <div id="context-empty" class="tip">
+        Navigate to a GitHub repository or profile page to save it.
+      </div>
+
+    </div>
+  </div>
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
