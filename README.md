@@ -25,10 +25,16 @@
 - **Offscreen Processing**: Utilizes an offscreen document to interact with Shared IndexedDB, as background service workers lack direct DOM/IndexedDB access in some contexts.
 
 ## 📦 Installation (Manual)
-1. Open Microsoft Edge and navigate to `edge://extensions`.
-2. Toggle **Developer mode** (bottom-left area).
-3. Select **Load unpacked**.
-4. Choose the `gitshelf-extension` folder.
+
+### **Microsoft Edge**
+1. Open Edge and go to `edge://extensions`.
+2. Toggle **Developer mode** (bottom-left).
+3. Select **Load unpacked** and choose this folder.
+
+### **Google Chrome**
+1. Open Chrome and go to `chrome://extensions`.
+2. Toggle **Developer mode** (top-right).
+3. Select **Load unpacked** and choose this folder.
 
 ## 📖 How to Use
 1. **Initial Sync**: Open the GitShelf web application to allow the extension to securely bridge your GitHub credentials.

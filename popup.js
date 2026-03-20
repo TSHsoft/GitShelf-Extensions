@@ -38,14 +38,18 @@ async function init() {
 
   // 2. Proactive Sync with App's Main Storage (Pull Model)
   // This ensures that if the app is logged out, the extension knows immediately.
-  await syncAuthWithApp();
+  // CRITICAL: Skip sync IF user manually logged out from the extension (Option B)
+  const { manually_logged_out } = await chrome.storage.local.get(['manually_logged_out']);
+  if (!manually_logged_out) {
+    await syncAuthWithApp();
+  }
 
   // 3. Check Auth Storage
   let storage = await chrome.storage.local.get(['githubToken', 'userProfile']);
   
   if (!storage.githubToken) {
     // Try to sync from open app tabs (Push-back fallback)
-    await trySyncAuth();
+    if (!manually_logged_out) await trySyncAuth();
     storage = await chrome.storage.local.get(['githubToken', 'userProfile']);
   }
   
@@ -58,7 +62,9 @@ async function init() {
   }
 
   // 2. Event Listeners
-  elements.btnLogin.onclick = () => {
+  elements.btnLogin.onclick = async () => {
+    // Reset manual logout flag when clicking login
+    await chrome.storage.local.set({ manually_logged_out: false });
     chrome.tabs.create({ url: CONFIG.APP_URL });
   };
 
@@ -67,6 +73,8 @@ async function init() {
   };
   
   elements.btnSignOut.onclick = async () => {
+    // Flag that this was a manual disconnect
+    await chrome.storage.local.set({ manually_logged_out: true });
     await chrome.storage.local.remove(['githubToken', 'userProfile', 'savedRepoIds']);
     showState('logged-out');
   };
