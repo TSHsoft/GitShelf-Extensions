@@ -18,6 +18,7 @@
 
 ## 🚀 Core Features
 - **One-click Capture**: Directly save repositories or user profiles while browsing GitHub.
+- **Smart Star Badge**: The extension icon automatically displays a yellow star (★) badge when browsing a repository or profile that is already saved in your GitShelf.
 - **Background Sync**: Synchronizes authentication state from the [GitShelf web application](https://gitshelf.vercel.app/) session using an encrypted bridge.
 - **Interface Actions**: Interactive popup with theme switching (Dark/Light) and a dedicated Sign Out icon to manage account sessions.
 - **Standalone Operation**: Fetched data is saved to IndexedDB independently once synchronized.

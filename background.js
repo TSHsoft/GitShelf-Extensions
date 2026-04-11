@@ -15,32 +15,91 @@ const ICONS_GREY = {
   "128": "icons/icon128_grey.png"
 };
 
+// Tracks tabs that currently have an in-progress badge check to avoid stacking
+const checkingTabs = new Set();
+
+// System pages that are not valid GitHub profiles
+const GITHUB_SYSTEM_PATHS = new Set([
+  'notifications', 'settings', 'trending', 'explore',
+  'marketplace', 'codespaces', 'issues', 'pulls'
+]);
+
 /**
- * Updates the extension icon based on the URL of the tab.
- * Shows color icon on GitHub/Localhost, and grey elsewhere.
+ * Parses a GitHub URL and returns the shelf ID ("owner/repo" or "owner").
+ * Returns null for non-GitHub or system pages.
  */
-function updateExtensionIcon(tabId, url) {
+function parseGithubPath(url) {
+  if (!url) return null;
+  const repoMatch = url.match(/https:\/\/github\.com\/([^/?#]+\/[^/?#]+)/);
+  if (repoMatch) return repoMatch[1];
+  const profileMatch = url.match(/https:\/\/github\.com\/([^/?#]+)/);
+  if (profileMatch) {
+    const name = profileMatch[1];
+    if (GITHUB_SYSTEM_PATHS.has(name)) return null;
+    return name;
+  }
+  return null;
+}
+
+/**
+ * Updates the extension icon and badge for a tab.
+ * - GitHub pages → color icon
+ * - Saved path   → yellow ★ badge
+ * - Unsaved path → no badge
+ * - Other pages  → grey icon, no badge
+ */
+async function updateIconBadge(tabId, url) {
   if (!tabId) return;
-  
-  // Determine if we should show the colored icon
-  // Supports github.com, github.io and localhost (for testing)
-  const isSupported = url && (
-    url.includes('github.com') || 
-    url.includes('github.io') || 
-    url.includes('localhost') || 
-    url.includes('127.0.0.1')
-  );
-  
-  chrome.action.setIcon({
-    tabId: tabId,
-    path: isSupported ? ICONS_COLOR : ICONS_GREY
-  });
+
+  const isGithub = url && url.includes('github.com');
+  const isLocal = url && (url.includes('localhost') || url.includes('127.0.0.1'));
+
+  if (!isGithub && !isLocal) {
+    // Non-GitHub page: grey icon, no badge
+    chrome.action.setIcon({ tabId, path: ICONS_GREY });
+    chrome.action.setBadgeText({ tabId, text: '' });
+    return;
+  }
+
+  // GitHub (or local dev) page: always show color icon
+  chrome.action.setIcon({ tabId, path: ICONS_COLOR });
+
+  if (!isGithub) {
+    // Local dev page — color icon but no shelf check
+    chrome.action.setBadgeText({ tabId, text: '' });
+    return;
+  }
+
+  const path = parseGithubPath(url);
+  if (!path) {
+    // System page (settings, trending…) — no badge
+    chrome.action.setBadgeText({ tabId, text: '' });
+    return;
+  }
+
+  // Guard: skip if a check is already in flight for this tab
+  if (checkingTabs.has(tabId)) return;
+  checkingTabs.add(tabId);
+
+  try {
+    const exists = await handleCheck(path);
+    if (exists) {
+      chrome.action.setBadgeText({ tabId, text: '★' });
+      chrome.action.setBadgeBackgroundColor({ tabId, color: '#F6C90E' });
+    } else {
+      chrome.action.setBadgeText({ tabId, text: '' });
+    }
+  } catch (_) {
+    chrome.action.setBadgeText({ tabId, text: '' });
+  } finally {
+    checkingTabs.delete(tabId);
+  }
 }
 
 // Listen for tab updates (navigation, URL changes)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' || changeInfo.url) {
-    updateExtensionIcon(tabId, tab.url);
+    updateIconBadge(tabId, tab.url);
   }
 });
 
@@ -48,7 +107,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.tabs.get(activeInfo.tabId, (tab) => {
     if (chrome.runtime.lastError || !tab) return;
-    updateExtensionIcon(activeInfo.tabId, tab.url);
+    updateIconBadge(activeInfo.tabId, tab.url);
   });
 });
 
@@ -177,12 +236,11 @@ async function handleAuthSync(appUrl) {
 
 async function handleSave(path) {
   console.log(`[Background] handleSave started for path: ${path}`);
-  // 1. Send the path directly to the App tab or offscreen bridge
   await saveToAppDatabase(path);
-  
-  // 2. Note: We don't update local savedRepoIds cache here anymore 
-  // since the App does its own fetch/save now. The App will broadcast 
-  // success back to us.
+
+  // Immediately show star badge on the active tab after a successful save
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab) updateIconBadge(tab.id, tab.url);
 }
 
 async function fetchRepoFromGithub(path, token) {
